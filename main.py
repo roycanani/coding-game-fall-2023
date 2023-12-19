@@ -190,7 +190,9 @@ class Game:
             if fish_id not in self.my_scans
         ]
         for drone in self.my_drones:
-            final_target_fish = [fish_id for fish_id in final_target_fish if fish_id not in drone.scans]
+            final_target_fish = [
+                fish_id for fish_id in final_target_fish if fish_id not in drone.scans
+            ]
         return final_target_fish
 
     def get_my_radar_blips(
@@ -215,7 +217,7 @@ class Game:
             )
             light = 1 if drone.battery >= 5 else 0
             debug(len(drone.scans))
-            if len(drone.scans) > 1:
+            if len(drone.scans) > 1 or len(self.my_radar_blips[drone.drone_id]) == 0:
                 loc = Location(drone.pos.x, 0)
             print(f"MOVE {loc.x} {loc.y} {light}")
 
