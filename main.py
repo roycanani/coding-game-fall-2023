@@ -1,7 +1,21 @@
 from __future__ import annotations
+from functools import cached_property
 import math
-from typing import List, Dict, Tuple
+from typing import Any, List, Dict, Tuple
 from dataclasses import dataclass
+from enum import Enum
+import sys
+
+
+class Consts:
+    DRONE_SPEED = 600
+
+
+class Direction(Enum):
+    TOP_LEFT = "TL"
+    TOP_RIGHT = "TR"
+    BOTTOM_LEFT = "BL"
+    BOTTOM_RIGHT = "BR"
 
 
 @dataclass
@@ -32,7 +46,7 @@ class Fish:
 @dataclass
 class RadarBlip:
     fish_id: int
-    dir: str
+    dir: Direction
 
 
 @dataclass
@@ -42,6 +56,33 @@ class Drone:
     dead: bool
     battery: int
     scans: List[int]
+
+
+def debug(message: Any):
+    print(message, file=sys.stderr)
+
+
+def move_in_direction(current_location: Location, direction: Direction) -> Location:
+    if direction == Direction.TOP_LEFT.value:
+        return Location(
+            current_location.x - Consts.DRONE_SPEED // 2,
+            current_location.y - Consts.DRONE_SPEED // 2,
+        )
+    if direction == Direction.TOP_RIGHT.value:
+        return Location(
+            current_location.x + Consts.DRONE_SPEED // 2,
+            current_location.y - Consts.DRONE_SPEED // 2,
+        )
+    if direction == Direction.BOTTOM_LEFT.value:
+        return Location(
+            current_location.x - Consts.DRONE_SPEED // 2,
+            current_location.y + Consts.DRONE_SPEED // 2,
+        )
+    if direction == Direction.BOTTOM_RIGHT.value:
+        return Location(
+            current_location.x + Consts.DRONE_SPEED // 2,
+            current_location.y + Consts.DRONE_SPEED // 2,
+        )
 
 
 def get_scans() -> List[int]:
@@ -95,31 +136,20 @@ def get_visible_fish() -> List[Fish]:
     return visible_fish
 
 
-def get_closest_visible_unexplored_fish(
-    visible_fish: List[Fish], scans: List[Fish], drone_location: Location
+def priorities_drone_move_direction(
+    drone_location: Location, radar_blips: List[RadarBlip]
 ) -> Location:
-    available_fish: List[Fish] = [
-        fish for fish in visible_fish if fish.fish_id not in scans
-    ]
-    sorted_by_distance = sorted(
-        available_fish, key=lambda fish: drone_location.distance(fish.pos)
-    )
-    return sorted_by_distance[0].pos if len(sorted_by_distance) > 0 else drone_location
+    directions = {"TL": 0, "TR": 0, "BL": 0, "BR": 0}
+    debug(radar_blips)
+    for radar_blip in radar_blips:
+        direction = radar_blip.dir
+        directions[direction] += 1
+    most_common: Direction = max(directions, key=directions.get)
+    debug(directions)
+    return move_in_direction(drone_location, most_common)
 
 
-def get_my_radar_blips(
-    my_radar_blips: Dict[int, List[RadarBlip]]
-) -> Dict[int, List[RadarBlip]]:
-    my_radar_blip_count = int(input())
-    for _ in range(my_radar_blip_count):
-        drone_id, fish_id, dir = input().split()
-        drone_id = int(drone_id)
-        fish_id = int(fish_id)
-        my_radar_blips[drone_id].append(RadarBlip(fish_id, dir))
-    return my_radar_blips
-
-
-def initilize_input(FishDetail):
+def initilize_input(FishDetail) -> Dict[int, FishDetail]:
     fish_details: Dict[int, FishDetail] = {}
 
     fish_count = int(input())
@@ -134,6 +164,7 @@ fish_details = initilize_input(FishDetail)
 
 class Game:
     def __init__(self) -> None:
+        self.fish_details = fish_details
         self.my_score = int(input())
         self.foe_score = int(input())
 
@@ -143,24 +174,49 @@ class Game:
         self.my_drones, self.my_radar_blips = get_drone_info()
         self.foe_drones, self.foe_radar_blips = get_drone_info()
 
-        self.drone_by_id = get_drone_by_id(self.my_drones, self.foe_drones)
+        self.drone_by_id: Dict[int, Drone] = get_drone_by_id(
+            self.my_drones, self.foe_drones
+        )
         update_scans(self.drone_by_id)
 
         self.visible_fish = get_visible_fish()
-        self.my_radar_blips = get_my_radar_blips(self.my_radar_blips)
+        self.my_radar_blips = self.get_my_radar_blips(self.my_radar_blips)
+
+    @cached_property
+    def my_unscanned_fish_ids(self) -> List[int]:
+        final_target_fish = [
+            fish_id
+            for fish_id in self.fish_details.keys()
+            if fish_id not in self.my_scans
+        ]
+        for drone in self.my_drones:
+            final_target_fish = [fish_id for fish_id in final_target_fish if fish_id not in drone.scans]
+        return final_target_fish
+
+    def get_my_radar_blips(
+        self, my_radar_blips: Dict[int, List[RadarBlip]]
+    ) -> Dict[int, List[RadarBlip]]:
+        my_radar_blip_count = int(input())
+        debug(self.my_unscanned_fish_ids)
+        for _ in range(my_radar_blip_count):
+            drone_id, fish_id, dir = input().split()
+            if int(fish_id) in self.my_unscanned_fish_ids:
+                drone_id = int(drone_id)
+                fish_id = int(fish_id)
+                my_radar_blips[drone_id].append(RadarBlip(fish_id, dir))
+        return my_radar_blips
 
     def run_turn(self) -> None:
+        debug(self.my_radar_blips)
         for drone in self.my_drones:
-            x = drone.pos.x
-            y = drone.pos.y
-            loc = get_closest_visible_unexplored_fish(
-                self.visible_fish, self.my_scans, drone.pos
+            loc = priorities_drone_move_direction(
+                drone_location=drone.pos,
+                radar_blips=self.my_radar_blips[drone.drone_id],
             )
-            # TODO: Implement logic on where to move here
-            target_x = 5000
-            target_y = 5000
-            light = 1
-
+            light = 1 if drone.battery >= 5 else 0
+            debug(len(drone.scans))
+            if len(drone.scans) > 1:
+                loc = Location(drone.pos.x, 0)
             print(f"MOVE {loc.x} {loc.y} {light}")
 
 
