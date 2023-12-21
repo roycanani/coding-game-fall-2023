@@ -1,7 +1,7 @@
 from __future__ import annotations
 from functools import cached_property
 import math
-from typing import Any, List, Dict, Tuple
+from typing import Any, List, Dict, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 import sys
@@ -9,6 +9,7 @@ import sys
 
 class Consts:
     DRONE_SPEED = 600
+    MAP_SIZE = 10000
 
 
 class Direction(Enum):
@@ -64,6 +65,36 @@ class Drone:
     dead: bool
     battery: int
     scans: List[int]
+
+
+@dataclass
+class DirectionData:
+    direction: Direction
+    edge: Location
+    fish_amount: int = 0
+    distance_from_drone: Optional[float] = None
+
+    def __init__(self, direction: Direction, drone_location: Location, fish_amount=0):
+        self.edge = self.edge_from_direction(direction)
+        self.fish_amount = fish_amount
+        self.distance_from_drone = self.edge.distance(drone_location)
+        self.direction = direction
+
+    def score(self) -> float:
+        return self.fish_amount / max(0.01, self.distance_from_drone)
+
+    @staticmethod
+    def edge_from_direction(direction: Direction):
+        if direction.value == "TL":
+            return Location(0, 0)
+        elif direction.value == "TR":
+            return Location(Consts.MAP_SIZE - 1, 0)
+        elif direction.value == "BL":
+            return Location(0, Consts.MAP_SIZE - 1)
+        elif direction.value == "BR":
+            return Location(Consts.MAP_SIZE - 1, Consts.MAP_SIZE - 1)
+        else:
+            raise ValueError(f"Unsupported direction {direction}")
 
 
 def debug(message: Any):
@@ -147,12 +178,21 @@ def get_visible_fish() -> List[Fish]:
 def priorities_drone_move_direction(
     drone_location: Location, radar_blips: List[RadarBlip]
 ) -> Location:
-    directions = {"TL": 0, "TR": 0, "BL": 0, "BR": 0}
+    directions_to_direction_data = {}
+    for direction in Direction:
+        debug(f"Direction {direction.value}")
+        directions_to_direction_data[direction.value] = DirectionData(
+            direction=direction, drone_location=drone_location
+        )
+
     for radar_blip in radar_blips:
         direction = radar_blip.dir
-        directions[direction] += 1
-    most_common: Direction = max(directions, key=directions.get)
-    return move_in_direction(drone_location, most_common)
+        directions_to_direction_data[direction].fish_amount += 1
+    best_direction: Direction = max(
+        directions_to_direction_data,
+        key=lambda direction: directions_to_direction_data[direction].score(),
+    )
+    return move_in_direction(drone_location, best_direction)
 
 
 def initilize_input(FishDetail) -> Dict[int, FishDetail]:
@@ -216,7 +256,7 @@ class Game:
         for fish_ids_by_color in all_fish_by_color.values():
             if set(fish_ids_by_color) <= set(all_current_scanned_fish):
                 cnt += 1
-        return cnt * 4
+        return cnt * 3
 
     def all_fish_of_type_acievement_amount(self, fish: List[int]):
         # TODO: Check foe not already achieved.
@@ -225,7 +265,7 @@ class Game:
         for fish_ids_by_type in all_fish_by_type.values():
             if set(fish_ids_by_type) <= set(all_current_scanned_fish):
                 cnt += 1
-        return cnt * 3
+        return cnt * 4
 
     def is_first_fish_scanned(self, fish_id: int) -> int:
         return 1 if fish_id not in self.foe_scans else 0
@@ -272,7 +312,10 @@ class Game:
             list(set([fish for drone in self.my_drones for fish in drone.scans]))
         )
         debug(f"{all_drone_achievements=} {max_achievements=} {base_acievemnts=}")
-        if all_drone_achievements > max_achievements and all_drone_achievements - max_achievements > 5:
+        if (
+            all_drone_achievements > max_achievements
+            and all_drone_achievements - max_achievements > 5
+        ):
             return self.my_drones
         else:
             return drones_to_base
