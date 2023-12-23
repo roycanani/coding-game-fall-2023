@@ -10,6 +10,7 @@ import sys
 class Consts:
     DRONE_SPEED = 600
     MAP_SIZE = 10000
+    MONSTER_TYPE = -1
 
 
 class Direction(Enum):
@@ -31,7 +32,7 @@ class Location:
 
 
 @dataclass
-class FishDetail:
+class CreatureDetail:
     color: int
     type: int
 
@@ -39,22 +40,26 @@ class FishDetail:
         return hash(f"{self.color}-{self.type}")
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, FishDetail):
+        if not isinstance(other, CreatureDetail):
             return False
         return self.color == other.color and self.type == other.type
 
+    @property
+    def is_monster(self):
+        return self.type == Consts.MONSTER_TYPE
+
 
 @dataclass
-class Fish:
-    fish_id: int
+class Creature:
+    creature_id: int
     pos: Location
     speed: Location
-    detail: FishDetail
+    detail: CreatureDetail
 
 
 @dataclass
 class RadarBlip:
-    fish_id: int
+    creature_id: int
     dir: Direction
 
 
@@ -128,8 +133,8 @@ def get_scans() -> List[int]:
     scans = []
     scan_count = int(input())
     for _ in range(scan_count):
-        fish_id = int(input())
-        scans.append(fish_id)
+        creature_id = int(input())
+        scans.append(creature_id)
     return scans
 
 
@@ -160,19 +165,31 @@ def get_drone_by_id(
 def update_scans(drone_by_id: Dict[int, Drone]) -> None:
     drone_scan_count = int(input())
     for _ in range(drone_scan_count):
-        drone_id, fish_id = map(int, input().split())
-        drone_by_id[drone_id].scans.append(fish_id)
+        drone_id, creature_id = map(int, input().split())
+        drone_by_id[drone_id].scans.append(creature_id)
 
 
-def get_visible_fish() -> List[Fish]:
-    visible_fish: List[Fish] = []
-    visible_fish_count = int(input())
-    for _ in range(visible_fish_count):
-        fish_id, fish_x, fish_y, fish_vx, fish_vy = map(int, input().split())
-        pos = Location(fish_x, fish_y)
-        speed = Location(fish_vx, fish_vy)
-        visible_fish.append(Fish(fish_id, pos, speed, fish_details[fish_id]))
-    return visible_fish
+def get_visible_creatures(
+    fish_details: Dict[int, CreatureDetail], monster_details: Dict[int, CreatureDetail]
+) -> Tuple[List[Creature], List[Creature]]:
+    visible_fish: List[Creature] = []
+    visible_monsters: List[Creature] = []
+    visible_creature_count = int(input())
+    for _ in range(visible_creature_count):
+        creature_id, creature_x, creature_y, creature_vx, creature_vy = map(
+            int, input().split()
+        )
+        pos = Location(creature_x, creature_y)
+        speed = Location(creature_vx, creature_vy)
+        if creature_id in monster_details:
+            creature = Creature(creature_id, pos, speed, monster_details[creature_id])
+            visible_monsters.append(creature)
+        elif creature_id in  fish_details:
+            creature = Creature(creature_id, pos, speed, fish_details[creature_id])
+            visible_fish.append(creature)
+        else:
+            raise Exception(f"Unrecognized creature {creature}")
+    return visible_fish, visible_monsters
 
 
 def priorities_drone_move_direction(
@@ -180,7 +197,6 @@ def priorities_drone_move_direction(
 ) -> Location:
     directions_to_direction_data = {}
     for direction in Direction:
-        debug(f"Direction {direction.value}")
         directions_to_direction_data[direction.value] = DirectionData(
             direction=direction, drone_location=drone_location
         )
@@ -195,37 +211,44 @@ def priorities_drone_move_direction(
     return move_in_direction(drone_location, best_direction)
 
 
-def initilize_input(FishDetail) -> Dict[int, FishDetail]:
-    fish_details: Dict[int, FishDetail] = {}
+def initilize_input(
+    CreatureDetail,
+) -> Tuple[Dict[int, CreatureDetail], Dict[int, CreatureDetail]]:
+    fish_details: Dict[int, CreatureDetail] = {}
+    monster_details: Dict[int, CreatureDetail] = {}
 
-    fish_count = int(input())
-    for _ in range(fish_count):
-        fish_id, color, _type = map(int, input().split())
-        fish_details[fish_id] = FishDetail(color, _type)
-    return fish_details
+    creature_count = int(input())
+    for _ in range(creature_count):
+        creature_id, color, _type = map(int, input().split())
+        detail: CreatureDetail = CreatureDetail(color=color, type=_type)
+        if detail.is_monster:
+            monster_details[creature_id] = detail
+        else:
+            fish_details[creature_id] = detail
+    return fish_details, monster_details
 
 
-def fish_dict_by_type(fish_details: Dict[int, FishDetail]) -> Dict[int, Fish]:
+def fish_dict_by_type(fish_details: Dict[int, CreatureDetail]) -> Dict[int, Creature]:
     fish_by_type = {}
-    for fish_id, fish_detail in fish_details.items():
+    for creature_id, fish_detail in fish_details.items():
         fish_by_type[fish_detail.type] = fish_by_type.get(fish_detail.type, []) + [
-            fish_id
+            creature_id
         ]
     return fish_by_type
 
 
-def fish_dict_by_color(fish_details: Dict[int, FishDetail]) -> Dict[int, Fish]:
+def fish_dict_by_color(fish_details: Dict[int, CreatureDetail]) -> Dict[int, Creature]:
     fish_by_type = {}
-    for fish_id, fish_detail in fish_details.items():
+    for creature_id, fish_detail in fish_details.items():
         fish_by_type[fish_detail.color] = fish_by_type.get(fish_detail.type, []) + [
-            fish_id
+            creature_id
         ]
     return fish_by_type
 
 
-fish_details = initilize_input(FishDetail)
-all_fish_by_type: Dict[int, FishDetail] = fish_dict_by_type(fish_details)
-all_fish_by_color: Dict[int, FishDetail] = fish_dict_by_color(fish_details)
+fish_details, monster_details = initilize_input(CreatureDetail)
+all_fish_by_type: Dict[int, CreatureDetail] = fish_dict_by_type(fish_details)
+all_fish_by_color: Dict[int, CreatureDetail] = fish_dict_by_color(fish_details)
 
 
 class Game:
@@ -246,52 +269,54 @@ class Game:
         )
         update_scans(self.drone_by_id)
 
-        self.visible_fish = get_visible_fish()
+        self.visible_fish, self.visible_monsters = get_visible_creatures(
+            fish_details, monster_details
+        )
         self.my_radar_blips = self.get_my_radar_blips(self.my_radar_blips)
 
-    def all_fish_of_color_acievement_amount(self, fish: List[int]) -> int:
+    def all_fish_of_color_acievement_amount(self, Creature: List[int]) -> int:
         # TODO: Check foe not already achieved.
-        all_current_scanned_fish = [*fish, *self.my_scans]
+        all_current_scanned_fish = [*Creature, *self.my_scans]
         cnt = 0
-        for fish_ids_by_color in all_fish_by_color.values():
-            if set(fish_ids_by_color) <= set(all_current_scanned_fish):
+        for creature_ids_by_color in all_fish_by_color.values():
+            if set(creature_ids_by_color) <= set(all_current_scanned_fish):
                 cnt += 1
         return cnt * 3
 
-    def all_fish_of_type_acievement_amount(self, fish: List[int]):
+    def all_fish_of_type_acievement_amount(self, Creature: List[int]):
         # TODO: Check foe not already achieved.
-        all_current_scanned_fish = [*fish, *self.my_scans]
+        all_current_scanned_fish = [*Creature, *self.my_scans]
         cnt = 0
-        for fish_ids_by_type in all_fish_by_type.values():
-            if set(fish_ids_by_type) <= set(all_current_scanned_fish):
+        for creature_ids_by_type in all_fish_by_type.values():
+            if set(creature_ids_by_type) <= set(all_current_scanned_fish):
                 cnt += 1
         return cnt * 4
 
-    def is_first_fish_scanned(self, fish_id: int) -> int:
-        return 1 if fish_id not in self.foe_scans else 0
+    def is_first_fish_scanned(self, creature_id: int) -> int:
+        return 1 if creature_id not in self.foe_scans else 0
 
-    def get_fish_of_type_first_scanned_amount(self, fish: List[Fish]) -> int:
-        return sum(self.is_first_fish_scanned(f) for f in fish)
+    def get_fish_of_type_first_scanned_amount(self, Creature: List[Creature]) -> int:
+        return sum(self.is_first_fish_scanned(f) for f in Creature)
 
-    def get_achievements_amount_by_fish(self, fish: List[Fish]) -> int:
+    def get_achievements_amount_by_fish(self, Creature: List[Creature]) -> int:
         return sum(
             [
-                self.all_fish_of_type_acievement_amount(fish),
-                self.all_fish_of_color_acievement_amount(fish),
-                self.get_fish_of_type_first_scanned_amount(fish),
+                self.all_fish_of_type_acievement_amount(Creature),
+                self.all_fish_of_color_acievement_amount(Creature),
+                self.get_fish_of_type_first_scanned_amount(Creature),
             ]
         )
 
     @cached_property
-    def my_unscanned_fish_ids(self) -> List[int]:
+    def my_unscanned_creature_ids(self) -> List[int]:
         final_target_fish = [
-            fish_id
-            for fish_id in self.fish_details.keys()
-            if fish_id not in self.my_scans
+            creature_id
+            for creature_id in self.fish_details.keys()
+            if creature_id not in self.my_scans
         ]
         for drone in self.my_drones:
             final_target_fish = [
-                fish_id for fish_id in final_target_fish if fish_id not in drone.scans
+                creature_id for creature_id in final_target_fish if creature_id not in drone.scans
             ]
         return final_target_fish
 
@@ -309,9 +334,10 @@ class Game:
                 max_achievements = drone_achivements
 
         all_drone_achievements = self.get_achievements_amount_by_fish(
-            list(set([fish for drone in self.my_drones for fish in drone.scans]))
+            list(
+                set([Creature for drone in self.my_drones for Creature in drone.scans])
+            )
         )
-        debug(f"{all_drone_achievements=} {max_achievements=} {base_acievemnts=}")
         if (
             all_drone_achievements > max_achievements
             and all_drone_achievements - max_achievements > 5
@@ -325,11 +351,13 @@ class Game:
     ) -> Dict[int, List[RadarBlip]]:
         my_radar_blip_count = int(input())
         for _ in range(my_radar_blip_count):
-            drone_id, fish_id, dir = input().split()
-            if int(fish_id) in self.my_unscanned_fish_ids:
-                drone_id = int(drone_id)
-                fish_id = int(fish_id)
-                my_radar_blips[drone_id].append(RadarBlip(fish_id, dir))
+            drone_id, creature_id, dir = input().split()
+            # Ignore monsters
+            if int(creature_id) in self.fish_details:
+                if int(creature_id) in self.my_unscanned_creature_ids:
+                    drone_id = int(drone_id)
+                    creature_id = int(creature_id)
+                    my_radar_blips[drone_id].append(RadarBlip(creature_id, dir))
         return my_radar_blips
 
     def run_turn(self) -> None:
