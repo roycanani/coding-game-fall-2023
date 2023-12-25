@@ -11,6 +11,7 @@ class Consts:
     DRONE_SPEED = 600
     MAP_SIZE = 10000
     MONSTER_TYPE = -1
+    MONSTER_ATTACK_RANGE = 500
 
 
 class Direction(Enum):
@@ -28,7 +29,43 @@ class Location:
     def distance(self, other: Location):
         x_distance = abs(self.x - other.x)
         y_distance = abs(self.y - other.y)
-        return math.ceil(math.sqrt(x_distance**2 + y_distance))
+        return math.ceil(math.sqrt(x_distance**2 + y_distance **2))
+
+    # def __init__(self, x: int, y: int):
+    #     self.x = max(min(Consts.MAP_SIZE, x), 0)
+    #     self.y = max(min(Consts.MAP_SIZE, y), 0)
+
+    def is_in_board(self) -> bool:
+        return 0 <= self.x < Consts.MAP_SIZE and 0 <= self.y < Consts.MAP_SIZE
+
+    def __repr__(self) -> str:
+        return f"{self.x},{self.y}"
+
+    def add(self, location: Location) -> Location:
+        return Location(x=self.x + location.x, y=self.y + location.y)
+    
+    def towards(self, dest: Location, speed: int):
+        if dest.distance(self) <= speed:
+            return dest
+        
+        angle = math.atan((self.y - dest.y) / max(0.1, (dest.x - self.x))) * 180 / math.pi
+        return self.get_angle_location(angle, speed)
+    
+    def get_angle_location(self, angle: float, radius: int) -> Location:
+            x = math.floor(radius * math.cos(angle))
+            y = math.floor(radius * math.sin(angle))
+            return self.add(Location(x=x, y=y))
+
+    def generate_circle_locations(self, angle: int = 10, radius: int = Consts.DRONE_SPEED) -> List[Location]:
+        locations: List[Location] = []
+        for a in range(0, 360, angle):
+            loc = self.get_angle_location(angle=a, radius=radius)
+            if loc.is_in_board():
+                locations.append(loc)
+        return locations
+    
+    def is_location_in_range_of_locations(self, locations: List[Location], _range: int):
+        return any(self.distance(location) <= _range for location in locations)
 
 
 @dataclass
@@ -273,6 +310,7 @@ class Game:
             fish_details, monster_details
         )
         self.my_radar_blips = self.get_my_radar_blips(self.my_radar_blips)
+        debug(self.visible_monsters)
 
     def all_fish_of_color_acievement_amount(self, Creature: List[int]) -> int:
         # TODO: Check foe not already achieved.
@@ -359,6 +397,35 @@ class Game:
                     creature_id = int(creature_id)
                     my_radar_blips[drone_id].append(RadarBlip(creature_id, dir))
         return my_radar_blips
+    
+    def find_safe_dest(self, drone: Drone, dest: Location) -> Location:
+        """
+        Return a location who is safe - e.g. no monsters in attack range, and
+        is as close the given destination as possible
+        """
+        debug(f"Dest : {dest}")
+        next_turn_loc = drone.pos.towards(dest, speed=Consts.DRONE_SPEED)
+        debug(f"Towards: {next_turn_loc}")
+        monsters_locations = [
+            monster.pos.add(monster.speed) for monster in self.visible_monsters
+        ]
+        if not next_turn_loc.is_location_in_range_of_locations(locations=monsters_locations, _range=Consts.MONSTER_ATTACK_RANGE):
+            return dest
+        
+        best_location = drone.pos
+        best_distance = sys.maxsize
+        debug(f"Monstres: {monsters_locations}")
+        for location in drone.pos.generate_circle_locations():
+            debug(f"Circle option: {location}")
+            if not location.is_location_in_range_of_locations(monsters_locations, _range=Consts.MONSTER_ATTACK_RANGE):
+                distance = location.distance(dest)
+                if location.distance(dest) < best_distance:
+                    best_distance = distance
+                    best_location = location
+
+        return best_location
+
+        
 
     def run_turn(self) -> None:
         should_go_to_base = self.get_drones_that_should_go_to_base()
@@ -371,6 +438,9 @@ class Game:
             # if len(drone.scans) > 1 or len(self.my_radar_blips[drone.drone_id]) == 0:
             if drone in should_go_to_base:
                 loc = Location(drone.pos.x, 0)
+
+            loc = self.find_safe_dest(drone, loc)
+
             print(f"MOVE {loc.x} {loc.y} {light}")
 
 
